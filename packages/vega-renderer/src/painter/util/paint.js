@@ -1,6 +1,8 @@
 import { renderModule } from 'vega-scenegraph';
 import { PainterModule } from '..';
 
+const IS_REMOVE_KEY = '_painter_renderer_del';
+
 /**
  * It automatically changes the view renderer to PainterModule.
  * @param {import('../interface').IPainterDrawConfig} config
@@ -38,8 +40,16 @@ export function paint(config) {
   let items = [];
   let test;
 
+  const isRemoved = (item) => (item[IS_REMOVE_KEY] === true);
+  // REFACTOR: check it in renderer.
+  const inLimits = (item) => {
+    for (key in limits) if (key && item[key] !== limits[key]) return false;
+    return true;
+  }
+
   if (viewMode === 'circle') {
     test = function(item) {
+      if (isRemoved(item) || !inLimits(item)) return false;
       if (((item.datum[fields[0]] - point[0]) ** 2) / (range[0] ** 2) +
         ((item.datum[fields[1]] - point[1]) ** 2) / (range[1] ** 2) <= (radius ** 2)) {
           return true;
@@ -48,6 +58,7 @@ export function paint(config) {
     } 
   } else if (viewMode === 'range') {
     test = function(item) {
+      if (isRemoved(item) || !inLimits(item)) return false;
       const a = (Array.isArray(range)) ? range[0] : range;
       // Math.abs(mutData[i][fields[1]] - point[1]) < r * Math.sqrt(range))
       if (item.datum[fields[1]] === point[1] && 
@@ -66,11 +77,13 @@ export function paint(config) {
       ans.mutValues.push(item.datum);
     }
   }
-  else {
+  else { // clear
     for (let item of items) if (test(item)) {
       item.fill = "#ffffff";
       item.opacity = 0;
       item.size = 0;
+      // REFACTOR: maintain unremoved items in renderer.
+      item[IS_REMOVE_KEY] = true;
       ans.mutIndices.add(item.datum[indexKey]);
       // ans.mutValues.push(item.datum);
     }
