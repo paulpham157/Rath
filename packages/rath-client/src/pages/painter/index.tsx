@@ -15,7 +15,7 @@ import {
 } from '@fluentui/react';
 import { toJS } from 'mobx';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import embed, { vega } from 'vega-embed';
+import embed from 'vega-embed';
 import { Item, ScenegraphEvent, renderModule } from 'vega';
 import intl from 'react-intl-universal';
 //@ts-ignore
@@ -26,7 +26,7 @@ import { deepcopy, getRange } from '../../utils';
 import { transVegaSubset2Schema } from '../../utils/transform';
 import { viewSampling } from '../../lib/stat/sampling';
 import { Card } from '../../components/card';
-import { isContinuous, clearAggregation, debounceShouldNeverBeUsed, labelingData } from './utils';
+import { isContinuous, clearAggregation, debounceShouldNeverBeUsed, labelingData, VegaViewChanges, debounce } from './utils';
 import EmbedAnalysis from './embedAnalysis';
 import { useViewData } from './viewDataHook';
 import { COLOR_CELLS, LABEL_FIELD_KEY, LABEL_INDEX, PAINTER_MODE_LIST } from './constants';
@@ -164,18 +164,11 @@ const Painter: React.FC = (props) => {
                 actions: painterMode === PAINTER_MODE.MOVE,
                 renderer: 'painter',
             }).then((res) => {
-                let changes = vega.changeset();
-                let removes = new Set();
-                res.view.change(
-                    'dataSource',
-                    changes
-                        .remove(() => true)
-                        .insert(viewData)
-                ).runAsync().then((view) => {
+                const viewChanges = new VegaViewChanges(res.view, 'dataSource', LABEL_INDEX);
+                viewChanges.insert(viewData).runAsync().then(viewChanges => {
                     // if (testConfig.printLog) { window.console.log("changes =", changes); }
                 });
 
-                
                 setRealPainterSize((res.view as unknown as { _width: number })._width * painterSize);
                 if (!(painterSpec.encoding.x && painterSpec.encoding.y)) return;
 
@@ -220,16 +213,13 @@ const Painter: React.FC = (props) => {
                                 indexKey: LABEL_INDEX,
                                 newColor:  COLOR_CELLS[mutFeatIndex].color,
                             });
+                            /** mutIndices: tupleid */
                             const { mutIndices, mutValues, view } = result;
                             res.view = view;
                             if (painterMode === PAINTER_MODE.COLOR) {
-                                changes = changes
-                                    .remove((r: any) => mutIndices.has(r[LABEL_INDEX]))
-                                    .insert(mutValues)
+                                viewChanges.modify(mutIndices, mutValues);
                             } else if (painterMode === PAINTER_MODE.ERASE) {
-                                changes = changes
-                                    .remove((r: any) => mutIndices.has(r[LABEL_INDEX]));
-                                for (let i of mutIndices) removes.add(i);
+                                viewChanges.remove(mutIndices);
                             }
                         }
                     };
@@ -255,12 +245,9 @@ const Painter: React.FC = (props) => {
                             });
                             res.view = view;
                             if (painterMode === PAINTER_MODE.COLOR) {
-                                changes = changes
-                                        .remove((r: any) => mutIndices.has(r[LABEL_INDEX]))
-                                        .insert(mutValues)
+                                viewChanges.modify(mutIndices, mutValues);
                             } else if (painterMode === PAINTER_MODE.ERASE) {
-                                changes = changes.remove((r: any) => mutIndices.has(r[LABEL_INDEX]));
-                                for (let i of mutIndices) removes.add(i);
+                                viewChanges.remove(mutIndices);
                             }
                         }
                     };
@@ -270,17 +257,16 @@ const Painter: React.FC = (props) => {
                     isPainting.current = true;
                     startPaint(res.view);
                 });
-                res.view.addEventListener('mouseup', () => {
+                const endup = () => {
                     isPainting.current = false;
                     stopPaint(res.view);
-                    const curRemoves = removes, curChanges = changes;
-                    removes = new Set();
-                    changes = vega.changeset();
-                    res.view.change('dataSource', curChanges).runAsync().then((view) => {
+                    viewChanges.runAsync().then((removedIds: Set<number>) => {
                         linkNearViz();
-                        maintainViewDataRemove((r: any) => curRemoves.has(r[LABEL_INDEX]));
+                        maintainViewDataRemove((r: any) => removedIds.has(r[LABEL_INDEX]));
                     })
-                });
+                }
+                res.view.addEventListener('mouseup', endup);
+                res.view.addEventListener('touchend', debounce(endup, 200));
                 // TODO: use renderer to check nearest points
                 // res.view.addEventListener('gl_mousemove', hdr);
                 // res.view.addEventListener('gl_touchmove', hdr);

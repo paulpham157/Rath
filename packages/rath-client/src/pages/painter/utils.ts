@@ -1,10 +1,128 @@
 import produce from 'immer';
+import { View, Changeset, tupleid } from 'vega';
 import { type ISemanticType } from '@kanaries/loa';
 import { IRow, IVegaSubset, PAINTER_MODE } from '../../interfaces';
 import { LABEL_FIELD_KEY, LABEL_INDEX } from './constants';
 
 export function isContinuous (fieldType: ISemanticType) {
     return fieldType === 'quantitative' || fieldType === 'temporal';
+}
+
+export function debounceAsync<T> (handler: (...args: any) => T | Promise<T>, delay_ms: number = 200) {
+    let timer: any;
+    let last_reject: ((reason: any) => void) | undefined;
+    return (...args: any) => {
+        if (timer !== undefined) {
+            clearTimeout(timer);
+            if (last_reject && last_reject instanceof Function) {
+                last_reject("overlaid");
+            }
+            timer = last_reject = undefined;
+        }
+        return new Promise((resolve, reject) => {
+            last_reject = reject;
+            // _change_timer = setTimeout(async () => { resolve(await handler())}, delay_ms);
+            timer = setTimeout(() => {
+                Promise.resolve(handler(...args)).then(res => resolve(res))
+            }, delay_ms)
+        });
+    }
+}
+
+export function debounce (handler: (...args: any) => void, delay_ms: number = 200) {
+    let timer: any;
+    return (...args: any) => {
+        if (timer !== undefined) {
+            clearTimeout(timer);
+            timer = undefined;
+        }
+        timer = setTimeout(() => handler(...args), delay_ms);
+    }
+}
+
+type IPainterKey = `_painter_${string}`;
+export class VegaViewChanges {
+    private changes: Changeset;
+    private rem: Set<number>;
+    private indexKey: (row: IRow) => any;
+    [key: IPainterKey ]: any;
+    // private _change_timer?: any;
+    // private _last_reject?: (reason: any) => void;
+    /**
+     * 
+     * @param view
+     * @param tableName 
+     * @param indexKey The key of index to distinguish different discords. \
+     *  Use vega's `tupleid(row)` if indexKey is not specified.
+     */
+    constructor (private view: View, private tableName: string, indexKey?: string) {
+        if (indexKey === undefined) this.indexKey = tupleid;
+        else this.indexKey = (row: IRow) => row[indexKey];
+        this.changes = view.changeset();
+        this.rem = new Set();
+    }
+
+    modify (mutIndices: Set<number>, mutValues: IRow[]) {
+    // modify (tuple: any, field?: string, value?: any) {
+        // this.changes = this.changes.modify(tuple, field, value);
+        let indices = new Set(mutIndices);
+        this.changes = this.changes.remove((v: IRow) => indices.has(this.indexKey(v))).insert(mutValues);
+        return this;
+    }
+
+    removeAll (tuples: any) {
+        this.changes = this.changes.remove(() => true);
+    }
+
+    remove (mutIndices: Iterable<number>) {
+        let indices = new Set(mutIndices);
+        this.changes = this.changes.remove((v: IRow) => indices.has(this.indexKey(v)));
+        for (let i of mutIndices) this.rem.add(i);
+        return this;
+    }
+
+    insert (mutValues: IRow[]) {
+        this.changes = this.changes.insert(mutValues);
+        return this;
+    }
+
+    /**
+     * Run changes and returns the last removed indices.
+     * @param delay_ms delay of debouncing in `ms`. default to 0.
+     * @returns The last removed indices.
+     */
+    async runAsync(): Promise<Set<number>> {
+        const res = this.rem;
+        this.rem = new Set();
+        this.view.change(this.tableName, this.changes)
+        this.changes = this.view.changeset();
+        this.view = await this.view.runAsync();
+        return res;
+    }
+    /**
+     * Run changes after `delay_ms` and returns a `Promise`.\
+     * Only resolves when actually been executed.
+     * @param delay_ms delay of debouncing in `ms`. default to 0.
+     * @returns The last removed indices.
+     */
+    runAsyncDelayed(delay_ms: number = 0): Promise<Set<number>> {
+        const TIMER_KEY: IPainterKey = '_painter_change_timer';
+        const REJECT_KEY: IPainterKey = '_painter_last_reject';
+        if (this[TIMER_KEY] !== undefined) {
+            clearTimeout(this[TIMER_KEY]);
+            if (this[REJECT_KEY] && this[REJECT_KEY] instanceof Function) {
+                this[REJECT_KEY]("overlaid");
+                this[REJECT_KEY] = undefined;
+            }
+            this[TIMER_KEY] = undefined;
+        }
+        return new Promise((resolve, reject) => {
+            const doChanges = () => this.runAsync().then(res => resolve(res));
+            this[REJECT_KEY] = reject;
+            this[TIMER_KEY] = setTimeout(doChanges, delay_ms);
+        });
+    }
+
 }
 
 export function batchMutInRange (mutData: IRow, field: string, range: [number, number], key: string, value: any) {
