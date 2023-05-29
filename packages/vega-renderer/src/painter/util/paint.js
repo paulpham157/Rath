@@ -37,14 +37,21 @@ export function paint(config) {
     view: view,
   }
 
+  /** @typedef {import('vega-typings').Item} Item */
+  /** @type {Item[]} */
   let items = [];
+  /** @type {(item: Item) => boolean}*/
   let test;
 
   const isRemoved = (item) => (item[IS_REMOVE_KEY] === true);
   // REFACTOR: check it in renderer.
+  /**
+   * inLimits: check if the item satisfies all the limits. See the `config.limits` parameter of `paint` function.
+   * @type {(item: Item) => boolean} */
   const inLimits = (item) => {
-    for (key in limits) if (key && item[key] !== limits[key]) return false;
-    return true;
+    return Object.entries(limits).every(([key, value]) => {
+      return (!key || item.datum?.[key] === value || (!item.datum && item[key] === value));
+    });
   }
 
   if (viewMode === 'circle') {

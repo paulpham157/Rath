@@ -159,9 +159,16 @@ class PainterRenderer extends WebGLRenderer {
     let interactive = this.selectInteractive(scene);
     if (scene === this._lastScene && this._lastBounds && bounds.equals(this._lastBounds)) return this._lastSelected;
     this._lastBounds = bounds;
+    /** @type {import('vega-typings/types').Item[]} */
     const selected = [];
     for (let item of interactive) {
-      if (bounds.contains(item.bounds)) sceneVisit(item, item => { if (item.datum) selected.push(item) });
+      if (bounds.contains(item.bounds)) {
+        sceneVisit(item, item => {
+          if (item.datum) {
+            selected.push(item);
+          }
+        });
+      }
     }
     return this._lastSelected = selected;
   }

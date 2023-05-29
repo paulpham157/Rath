@@ -265,6 +265,8 @@ const Painter: React.FC = (props) => {
                         maintainViewDataRemove((r: any) => removedIds.has(r[LABEL_INDEX]));
                     })
                 }
+                /** No need to remove the event listeners here, because the res.view object is created by `embed` function
+                 * and will be destroyed when the component is unmounted.  */
                 res.view.addEventListener('mouseup', endup);
                 res.view.addEventListener('touchend', debounce(endup, 200));
                 // TODO: use renderer to check nearest points
