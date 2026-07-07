@@ -45,14 +45,19 @@ export function paint(config) {
 
   const isRemoved = (item) => (item[IS_REMOVE_KEY] === true);
   // REFACTOR: check it in renderer.
+  // Computed once per paint call: `test` runs per item per event, so per-item
+  // Object.entries allocations would dominate the brush hot path.
+  const limitEntries = limits ? Object.entries(limits) : [];
   /**
    * inLimits: check if the item satisfies all the limits. See the `config.limits` parameter of `paint` function.
    * @type {(item: Item) => boolean} */
-  const inLimits = (item) => {
-    return Object.entries(limits).every(([key, value]) => {
-      return (!key || item.datum?.[key] === value || (!item.datum && item[key] === value));
-    });
-  }
+  const inLimits = limitEntries.length === 0 ? (() => true) : (item) => {
+    for (let i = 0; i < limitEntries.length; i++) {
+      const key = limitEntries[i][0], value = limitEntries[i][1];
+      if (key && !(item.datum?.[key] === value || (!item.datum && item[key] === value))) return false;
+    }
+    return true;
+  };
 
   if (viewMode === 'circle') {
     test = function(item) {

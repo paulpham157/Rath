@@ -232,6 +232,10 @@ const Painter: React.FC = (props) => {
                         if (!isPainting.current && e.vegaType !== 'touchmove') return;
                         startPaint(res.view);
                         if (painting && item && item.datum) {
+                            let limits: { [key: string]: any } = {};
+                            for (let f of limitFields) {
+                                limits[f] = item.datum[f];
+                            }
                             const { mutIndices, mutValues, view } = paint({
                                 view: res.view,
                                 painterMode,
@@ -239,6 +243,7 @@ const Painter: React.FC = (props) => {
                                 point: [item.datum[rotXField], item.datum[rotYField]],
                                 radius: painterSize / 2,
                                 range: xRange[1] - xRange[0],
+                                limits: limits,
                                 groupValue: mutFeatValues[mutFeatIndex],
                                 indexKey: LABEL_INDEX,
                                 newColor: COLOR_CELLS[mutFeatIndex].color,
